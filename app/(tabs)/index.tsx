@@ -1,11 +1,13 @@
 import * as ImagePicker from 'expo-image-picker'
 import { useEffect, useState } from 'react'
-import { Alert, Button, StyleSheet, Text, View } from 'react-native'
+import { Alert, Button, Pressable, StyleSheet, Text, View } from 'react-native'
 import { PolaroidCard } from '../../components/PolaroidCard'
 import { supabase } from '../../lib/supabase'
 
 export default function HomeScreen() {
   const [memories, setMemories] = useState<any[]>([])
+  const [boardSize, setBoardSize] = useState({ width: 0, height: 0 })
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null)
 
   useEffect(() => {
     fetchMemories()
@@ -110,6 +112,31 @@ export default function HomeScreen() {
     }
   }
 
+  async function handleDelete(id: string) {
+    // Optimistic UI update
+    setMemories((prev) => prev.filter((m) => m.id !== id))
+    setActiveMenuId(null)
+
+    const { error } = await supabase.from('memories').delete().eq('id', id)
+    if (error) {
+      console.log('Delete error:', error)
+    }
+  }
+
+  async function handleResize(id: string, nextScale: number) {
+    // optimistic UI
+    setMemories((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, user_scale: nextScale } : m))
+    )
+
+    const { error } = await supabase
+      .from('memories')
+      .update({ user_scale: nextScale })
+      .eq('id', id)
+
+    if (error) console.log('Resize save error:', error)
+  }
+
   async function bringToFront(id: string) {
     const maxZ =
       memories.length > 0
@@ -140,7 +167,14 @@ export default function HomeScreen() {
 
       <Button title="Upload Photo 📸" onPress={pickImage} />
 
-      <View style={styles.board}>
+      <Pressable
+        style={styles.board}
+        onPress={() => setActiveMenuId(null)}
+        onLayout={(e) => {
+          const { width, height } = e.nativeEvent.layout
+          setBoardSize({ width, height })
+        }}
+      >
         {([...memories]
           .sort((a, b) => (a.z_index ?? 0) - (b.z_index ?? 0))
           .map((memory, index) => {
@@ -157,12 +191,19 @@ export default function HomeScreen() {
                 x={x}
                 y={y}
                 zIndex={memory.z_index ?? 0}
+                boardWidth={boardSize.width}
+                boardHeight={boardSize.height}
+                menuOpen={activeMenuId === memory.id}
+                userScale={memory.user_scale ?? 1}
+                onResize={handleResize}
+                onLongPressMenu={() => setActiveMenuId(memory.id)}
+                onRequestDelete={handleDelete}
                 onDragStart={bringToFront}
                 onDragEnd={handleDragEnd}
               />
             )
           }))}
-      </View>
+      </Pressable>
     </View>
   )
 }
