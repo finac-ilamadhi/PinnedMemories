@@ -1,6 +1,7 @@
 import * as ImagePicker from 'expo-image-picker'
 import { useEffect, useState } from 'react'
-import { Alert, Button, Image, ScrollView, Text, View } from 'react-native'
+import { Alert, Button, StyleSheet, Text, View } from 'react-native'
+import { PolaroidCard } from '../../components/PolaroidCard'
 import { supabase } from '../../lib/supabase'
 
 export default function HomeScreen() {
@@ -9,7 +10,17 @@ export default function HomeScreen() {
   useEffect(() => {
     fetchMemories()
   }, [])
-
+  function stablePosition(id: string) {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) {
+      hash = id.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const ax = Math.abs(hash);
+    return {
+      x: 20 + (ax % 240),
+      y: 120 + ((ax * 7) % 360),
+    };
+  }
   async function fetchMemories() {
     const { data, error } = await supabase
       .from('memories')
@@ -79,28 +90,100 @@ export default function HomeScreen() {
     }
   }
 
+  async function handleDragEnd(id: string, x: number, y: number) {
+    // ✅ update UI instantly
+    setMemories((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, position_x: x, position_y: y } : m))
+    )
+
+    // ✅ then save to DB
+    const { error } = await supabase
+      .from('memories')
+      .update({
+        position_x: x,
+        position_y: y,
+      })
+      .eq('id', id)
+
+    if (error) {
+      console.log('Position save error:', error)
+    }
+  }
+
+  async function bringToFront(id: string) {
+    const maxZ =
+      memories.length > 0
+        ? Math.max(...memories.map((m) => m.z_index ?? 0))
+        : 0
+
+    const newZ = maxZ + 1
+
+    // update UI first
+    setMemories((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, z_index: newZ } : m))
+    )
+
+    // then update DB
+    const { error } = await supabase
+      .from('memories')
+      .update({ z_index: newZ })
+      .eq('id', id)
+
+    if (error) console.log('z_index update error:', error)
+  }
+
   return (
-    <ScrollView contentContainerStyle={{ padding: 20 }}>
-      <Text style={{ fontSize: 22, marginBottom: 20 }}>
+    <View style={styles.container}>
+      <Text style={styles.title}>
         PinnedMemories 💖
       </Text>
 
       <Button title="Upload Photo 📸" onPress={pickImage} />
 
-      <View style={{ marginTop: 20 }}>
-        {memories.map((memory) => (
-          <Image
-            key={memory.id}
-            source={{ uri: memory.image_url }}
-            style={{
-              width: '100%',
-              height: 250,
-              marginBottom: 20,
-              borderRadius: 12,
-            }}
-          />
-        ))}
+      <View style={styles.board}>
+        {([...memories]
+          .sort((a, b) => (a.z_index ?? 0) - (b.z_index ?? 0))
+          .map((memory, index) => {
+            const { x: defaultX, y: defaultY } = stablePosition(memory.id)
+
+            const x = memory.position_x ?? defaultX
+            const y = memory.position_y ?? defaultY
+
+            return (
+              <PolaroidCard
+                key={memory.id}
+                imageUrl={memory.image_url}
+                memoryId={memory.id}
+                x={x}
+                y={y}
+                zIndex={memory.z_index ?? 0}
+                onDragStart={bringToFront}
+                onDragEnd={handleDragEnd}
+              />
+            )
+          }))}
       </View>
-    </ScrollView>
+    </View>
   )
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F6EFE7',
+    paddingTop: 60,
+    paddingHorizontal: 10,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#333',
+    textAlign: 'center',
+  },
+  board: {
+    flex: 1,
+    marginTop: 20,
+    position: 'relative',
+  }
+})
