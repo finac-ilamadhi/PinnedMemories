@@ -80,6 +80,15 @@ export const PolaroidCard: React.FC<PolaroidCardProps> = ({
 
   const clampScale = (s: number) => Math.min(1.4, Math.max(0.7, s))
 
+  const SNAP = 24 // grid size in pixels
+  const MAGNET = 14 // only snap if within 14px of grid line
+
+  const snapToGrid = (v: number) => Math.round(v / SNAP) * SNAP
+  const maybeSnap = (v: number) => {
+    const snapped = snapToGrid(v)
+    return Math.abs(snapped - v) <= MAGNET ? snapped : v
+  }
+
   // ✅ keep latest callbacks (fixes "only once" bug)
   const onDragStartRef = useRef(onDragStart)
   const onDragEndRef = useRef(onDragEnd)
@@ -172,9 +181,14 @@ export const PolaroidCard: React.FC<PolaroidCardProps> = ({
 
         setIsDragging(false)
 
-        let finalX = dragStart.current.x + gesture.dx
-        let finalY = dragStart.current.y + gesture.dy
+        const finalX = dragStart.current.x + gesture.dx
+        const finalY = dragStart.current.y + gesture.dy
 
+        // 1. Apply magnetic snap
+        let snappedX = maybeSnap(finalX)
+        let snappedY = maybeSnap(finalY)
+
+        // 2. Apply clamp (important after snap)
         if (
           boardWidth > 0 &&
           boardHeight > 0 &&
@@ -184,20 +198,20 @@ export const PolaroidCard: React.FC<PolaroidCardProps> = ({
           const margin = 10
           const effectiveW = cardSize.width * userScale
           const effectiveH = cardSize.height * userScale
-          finalX = clamp(finalX, margin, boardWidth - effectiveW - margin)
-          finalY = clamp(finalY, margin, boardHeight - effectiveH - margin)
+          snappedX = clamp(snappedX, margin, boardWidth - effectiveW - margin)
+          snappedY = clamp(snappedY, margin, boardHeight - effectiveH - margin)
         }
 
         Animated.spring(position, {
-          toValue: { x: finalX, y: finalY },
+          toValue: { x: snappedX, y: snappedY },
           useNativeDriver: false,
-          stiffness: 60,
-          damping: 8,
+          stiffness: 55,
+          damping: 9,
           mass: 1,
         }).start()
 
-        // ✅ persist using latest function
-        onDragEndRef.current?.(memoryId, finalX, finalY)
+        // ✅ persist using latest function (snapped)
+        onDragEndRef.current?.(memoryId, snappedX, snappedY)
       },
 
       onPanResponderTerminate: () => {
